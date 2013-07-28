@@ -7,13 +7,15 @@ package Dist::Zilla::Plugin::Test::Compile;
 
 use Moose;
 use Data::Section -setup;
+
+my $module_finder_name = 'dzptc_InstallModulesWithoutPod';
 with (
     'Dist::Zilla::Role::FileGatherer',
     'Dist::Zilla::Role::TextTemplate',
     'Dist::Zilla::Role::FileFinderUser' => {
         method          => 'found_module_files',
         finder_arg_names => [ 'module_finder' ],
-        default_finders => [ ':InstallModules' ],
+        default_finders => [ $module_finder_name ],
     },
     'Dist::Zilla::Role::FileFinderUser' => {
         method          => 'found_script_files',
@@ -65,6 +67,26 @@ has _script_filenames => (
     lazy => 1,
     default => sub { [ map { $_->name } @{shift->found_script_files} ] },
 );
+
+sub BUILD
+{
+    my $self = shift;
+
+    # declare a customized filefinder based on :InstallModules, but also skips
+    # pod, which we'll use if the user didn't override with their own finder.
+    if (@{$self->module_finder} == 1
+        and $self->module_finder->[0] eq $module_finder_name
+        and not $self->zilla->plugin_named($module_finder_name)
+    {
+        require Dist::Zilla::Plugin::FileFinder::Filter;
+        push @{$self->zilla->plugins}, Dist::Zilla::Plugin::FileFinder::Filter->new(
+            plugin_name => $module_finder_name,
+            zilla => $self->zilla,
+            finder => [ ':InstallModules' ],
+            skip => '.pod$',
+        );
+    }
+}
 
 sub register_prereqs
 {
@@ -191,8 +213,8 @@ Perl release)
 =item * module_finder
 
 This is the name of a L<FileFinder|Dist::Zilla::Role::FileFinder> for finding
-modules to check.  The default value is C<:InstallModules>; this option can be
-used more than once.
+modules to check.  The default value is C<:InstallModules> (except .pod files
+are skipped); this option can be used more than once.
 
 Other pre-defined finders are listed in
 L<FileFinder|Dist::Zilla::Role::FileFinderUser/default_finders>.
